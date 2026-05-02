@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "chatwoot_megaapi_bridge",
+  "project_id": "777b02a4-a04d-46ee-bd30-5b487a1a0845"
+}
