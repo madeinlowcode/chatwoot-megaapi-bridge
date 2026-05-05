@@ -9,14 +9,14 @@ import (
 
 // ErrorCode values match docs/06.
 const (
-	CodeTenantNotFound       = "tenant_not_found"
-	CodeAuthInvalid          = "auth_invalid"
-	CodePayloadInvalid       = "payload_invalid"
-	CodeDependencyDown       = "dependency_unavailable"
-	CodeQueueFull            = "queue_full"
-	CodeRateLimited          = "rate_limited"
-	CodeMethodNotAllowed     = "method_not_allowed"
-	CodeInternal             = "internal_error"
+	CodeTenantNotFound   = "tenant_not_found"
+	CodeAuthInvalid      = "auth_invalid"
+	CodePayloadInvalid   = "payload_invalid"
+	CodeDependencyDown   = "dependency_unavailable"
+	CodeQueueFull        = "queue_full"
+	CodeRateLimited      = "rate_limited"
+	CodeMethodNotAllowed = "method_not_allowed"
+	CodeInternal         = "internal_error"
 )
 
 // writeError writes a JSON error envelope per docs/06.

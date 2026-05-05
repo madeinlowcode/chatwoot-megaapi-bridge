@@ -30,8 +30,8 @@ type Status struct {
 // Inbound webhook payload from megaAPI (parser is tolerant — ignores unknown fields).
 
 type WebhookPayload struct {
-	InstanceKey string            `json:"instance_key,omitempty"`
-	Messages    []WebhookMessage  `json:"messages"`
+	InstanceKey string           `json:"instance_key,omitempty"`
+	Messages    []WebhookMessage `json:"messages"`
 }
 
 type WebhookMessage struct {

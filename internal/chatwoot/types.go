@@ -39,9 +39,9 @@ type CreateContactResponse struct {
 }
 
 type Conversation struct {
-	ID        int64 `json:"id"`
-	AccountID int32 `json:"account_id,omitempty"`
-	InboxID   int32 `json:"inbox_id,omitempty"`
+	ID        int64  `json:"id"`
+	AccountID int32  `json:"account_id,omitempty"`
+	InboxID   int32  `json:"inbox_id,omitempty"`
 	Status    string `json:"status,omitempty"`
 }
 

@@ -85,4 +85,3 @@ func TestChatwootHubSignature256HeaderAccepted(t *testing.T) {
 		t.Fatalf("X-Hub-Signature-256 with sha256= prefix should not produce 401, got %d", rec.Code)
 	}
 }
-

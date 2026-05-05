@@ -8,12 +8,12 @@ import (
 
 type retriableErr struct{}
 
-func (retriableErr) Error() string  { return "retriable" }
+func (retriableErr) Error() string   { return "retriable" }
 func (retriableErr) Retriable() bool { return true }
 
 type nonRetriableErr struct{}
 
-func (nonRetriableErr) Error() string  { return "non" }
+func (nonRetriableErr) Error() string   { return "non" }
 func (nonRetriableErr) Retriable() bool { return false }
 
 func TestIsRetriable(t *testing.T) {

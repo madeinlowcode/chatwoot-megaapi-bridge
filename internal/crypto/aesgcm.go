@@ -14,7 +14,7 @@ const (
 )
 
 var (
-	ErrInvalidKey        = errors.New("crypto: master key must be 32 bytes")
+	ErrInvalidKey         = errors.New("crypto: master key must be 32 bytes")
 	ErrCiphertextTooShort = errors.New("crypto: ciphertext too short")
 )
 

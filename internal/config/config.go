@@ -11,12 +11,12 @@ import (
 
 // Config groups all runtime configuration.
 type Config struct {
-	Service    string
-	LogLevel   string
-	HTTPAddr   string
-	DatabaseURL string
-	RedisAddr   string
-	RedisDB     int
+	Service       string
+	LogLevel      string
+	HTTPAddr      string
+	DatabaseURL   string
+	RedisAddr     string
+	RedisDB       int
 	RedisPassword string
 
 	MasterKeyB64 string
@@ -36,15 +36,15 @@ type HTTPConfig struct {
 }
 
 const (
-	envServiceName    = "SERVICE_NAME"
-	envLogLevel       = "LOG_LEVEL"
-	envHTTPAddr       = "HTTP_ADDR"
-	envDatabaseURL    = "DATABASE_URL"
-	envRedisAddr      = "REDIS_ADDR"
-	envRedisDB        = "REDIS_DB"
-	envRedisPassword  = "REDIS_PASSWORD"
-	envMasterKey      = "MASTER_KEY"
-	envMigrateMode    = "MIGRATE_MODE"
+	envServiceName   = "SERVICE_NAME"
+	envLogLevel      = "LOG_LEVEL"
+	envHTTPAddr      = "HTTP_ADDR"
+	envDatabaseURL   = "DATABASE_URL"
+	envRedisAddr     = "REDIS_ADDR"
+	envRedisDB       = "REDIS_DB"
+	envRedisPassword = "REDIS_PASSWORD"
+	envMasterKey     = "MASTER_KEY"
+	envMigrateMode   = "MIGRATE_MODE"
 )
 
 // FromEnv loads configuration from environment variables, applying sane defaults.
