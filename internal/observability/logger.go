@@ -55,10 +55,18 @@ func parseLevel(s string) zerolog.Level {
 }
 
 // FromContext returns a logger enriched with request_id and tenant if set.
+// Falls back to a no-op (io.Discard) logger when neither the context nor
+// zerolog.DefaultContextLogger has been initialized — guards against panics
+// in code paths (notably tests) that do not call Init().
 func FromContext(ctx context.Context) *zerolog.Logger {
 	base := zerolog.Ctx(ctx)
-	if base.GetLevel() == zerolog.Disabled {
-		base = zerolog.DefaultContextLogger
+	if base == nil || base.GetLevel() == zerolog.Disabled {
+		if zerolog.DefaultContextLogger != nil {
+			base = zerolog.DefaultContextLogger
+		} else {
+			fallback := zerolog.New(io.Discard)
+			base = &fallback
+		}
 	}
 	bld := base.With().Str("service", serviceName)
 	if rid, ok := ctx.Value(ctxKeyRequestID).(string); ok && rid != "" {
