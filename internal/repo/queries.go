@@ -277,6 +277,38 @@ func (q *Queries) SetMessageCWID(ctx context.Context, id uuid.UUID, cwID int64) 
 	return err
 }
 
+// sqlSetMessageDelivered atomically pins cw_message_id and the terminal status
+// in a single UPDATE so a successful Chatwoot send and its DB-side acknowledgement
+// can never disagree. Returning the error lets the worker surface it to asynq for retry.
+const sqlSetMessageDelivered = `
+UPDATE messages
+SET cw_message_id = $2,
+    status        = 'delivered',
+    last_error    = NULL,
+    delivered_at  = now()
+WHERE id = $1`
+
+// SetMessageDelivered pins cw_message_id and flips status to 'delivered' atomically.
+func (q *Queries) SetMessageDelivered(ctx context.Context, id uuid.UUID, cwID int64) error {
+	_, err := q.pool.Exec(ctx, sqlSetMessageDelivered, id, cwID)
+	return err
+}
+
+// sqlMarkMessageDelivered is the no-cw-id variant for outbound messages where
+// the upstream (megaAPI) does not return a stable id we want to persist.
+const sqlMarkMessageDelivered = `
+UPDATE messages
+SET status       = 'delivered',
+    last_error   = NULL,
+    delivered_at = now()
+WHERE id = $1`
+
+// MarkMessageDelivered flips status to 'delivered' atomically without a cw_message_id.
+func (q *Queries) MarkMessageDelivered(ctx context.Context, id uuid.UUID) error {
+	_, err := q.pool.Exec(ctx, sqlMarkMessageDelivered, id)
+	return err
+}
+
 const sqlSetMessageContact = `UPDATE messages SET contact_id = $2 WHERE id = $1`
 
 func (q *Queries) SetMessageContact(ctx context.Context, id, contactID uuid.UUID) error {

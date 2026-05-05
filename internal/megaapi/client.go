@@ -88,7 +88,9 @@ func (c *HTTPClient) InstanceStatus(ctx context.Context, host, instanceKey, toke
 		return nil, err
 	}
 	st := &Status{Raw: raw}
-	_ = json.Unmarshal(raw, st)
+	if err := json.Unmarshal(raw, st); err != nil {
+		return nil, fmt.Errorf("megaapi: parse status: %w", err)
+	}
 	return st, nil
 }
 

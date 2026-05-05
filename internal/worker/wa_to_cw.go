@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/rs/zerolog"
 
 	"github.com/madeinlowcode/chatwoot-megaapi-bridge/internal/chatwoot"
 	"github.com/madeinlowcode/chatwoot-megaapi-bridge/internal/megaapi"
@@ -43,12 +45,25 @@ func (w *WAtoCW) HandleTask(ctx context.Context, t *asynq.Task) error {
 	log := observability.FromContext(ctx)
 	log.Info().Str("kind", "worker.send.started").Str("queue", queue.QueueWAtoCW).Msg("started")
 
-	_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusSending, nil)
+	// Idempotency guard: if Chatwoot already accepted this message in a prior
+	// attempt, just close out the DB-side state. Re-calling CreateMessage would
+	// duplicate in Chatwoot since their dedup keys on our cw_message_id, not the
+	// upstream WA external_id.
+	if msg.CWMessageID != nil {
+		if err := w.Queries.MarkMessageDelivered(ctx, msg.ID); err != nil {
+			log.Error().Err(err).Str("kind", "worker.db.error.mark_delivered").Msg("mark delivered")
+			return fmt.Errorf("worker: mark delivered: %w", err)
+		}
+		log.Info().Str("kind", "worker.send.skipped.duplicate_attempt").Int64("cw_message_id", *msg.CWMessageID).Msg("duplicate attempt; already delivered")
+		return nil
+	}
+
+	tryUpdateStatus(ctx, w.Queries, log, msg.ID, repo.StatusSending, nil, "sending")
 
 	var waMsg megaapi.WebhookMessage
 	if err := json.Unmarshal(msg.Payload, &waMsg); err != nil {
 		errMsg := err.Error()
-		_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusFailed, &errMsg)
+		tryUpdateStatus(ctx, w.Queries, log, msg.ID, repo.StatusFailed, &errMsg, "parse_payload_failed")
 		return fmt.Errorf("worker: parse stored payload: %w: %w", err, asynq.SkipRetry)
 	}
 
@@ -102,7 +117,9 @@ func (w *WAtoCW) HandleTask(ctx context.Context, t *asynq.Task) error {
 		cwContactID = contact.CWContactID
 	}
 
-	_ = w.Queries.SetMessageContact(ctx, msg.ID, contact.ID)
+	if err := w.Queries.SetMessageContact(ctx, msg.ID, contact.ID); err != nil {
+		log.Error().Err(err).Str("kind", "worker.db.error.set_contact").Msg("set message contact")
+	}
 
 	var convoID int64
 	if contact.CWConversationID != nil {
@@ -119,7 +136,9 @@ func (w *WAtoCW) HandleTask(ctx context.Context, t *asynq.Task) error {
 			return classify(err, "chatwoot.create_conversation")
 		}
 		convoID = conv.ID
-		_ = w.Queries.SetContactConversation(ctx, contact.ID, convoID)
+		if err := w.Queries.SetContactConversation(ctx, contact.ID, convoID); err != nil {
+			log.Error().Err(err).Str("kind", "worker.db.error.set_conversation").Msg("set contact conversation")
+		}
 	}
 
 	cwMsg, err := w.Chatwoot.CreateMessage(ctx, cwCfg, convoID, chatwoot.CreateMessageRequest{
@@ -134,8 +153,14 @@ func (w *WAtoCW) HandleTask(ctx context.Context, t *asynq.Task) error {
 		return classify(err, "chatwoot.create_message")
 	}
 
-	_ = w.Queries.SetMessageCWID(ctx, msg.ID, cwMsg.ID)
-	_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusDelivered, nil)
+	// Atomic write: pinning cw_message_id and 'delivered' in one UPDATE means
+	// a successful Chatwoot send and the DB-side ack can never disagree. Any
+	// failure here is returned so asynq retries — the idempotency guard above
+	// will short-circuit the next attempt without re-calling Chatwoot.
+	if err := w.Queries.SetMessageDelivered(ctx, msg.ID, cwMsg.ID); err != nil {
+		log.Error().Err(err).Str("kind", "worker.db.error.set_delivered").Int64("cw_message_id", cwMsg.ID).Msg("set delivered")
+		return fmt.Errorf("worker: set delivered: %w", err)
+	}
 
 	log.Info().
 		Str("kind", "worker.send.succeeded").
@@ -143,6 +168,17 @@ func (w *WAtoCW) HandleTask(ctx context.Context, t *asynq.Task) error {
 		Int64("cw_message_id", cwMsg.ID).
 		Msg("delivered")
 	return nil
+}
+
+// tryUpdateStatus writes a status transition and logs on failure with a structured
+// kind. It deliberately does NOT return the error: callers reach this helper for
+// non-terminal transitions where the next external step is still safe to attempt
+// (the worker's own progress is what matters; a missed updated_at is recoverable
+// via janitor). Use the queries directly when the caller needs to bubble the error.
+func tryUpdateStatus(ctx context.Context, q *repo.Queries, log *zerolog.Logger, id uuid.UUID, status repo.MsgStatus, errMsg *string, kind string) {
+	if err := q.UpdateMessageStatus(ctx, id, status, errMsg); err != nil {
+		log.Error().Err(err).Str("kind", "worker.db.error."+kind).Str("status", string(status)).Msg("update status")
+	}
 }
 
 func classify(err error, kind string) error {
@@ -154,6 +190,10 @@ func classify(err error, kind string) error {
 
 func jidToPhone(jid string) string {
 	at := strings.Index(jid, "@")
+	if at == 0 {
+		// JID like "@x" has no number — would otherwise propagate "+@x" downstream.
+		return ""
+	}
 	num := jid
 	if at > 0 {
 		num = jid[:at]

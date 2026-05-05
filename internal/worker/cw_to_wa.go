@@ -52,19 +52,27 @@ func (w *CWtoWA) HandleTask(ctx context.Context, t *asynq.Task) error {
 	log := observability.FromContext(ctx)
 	log.Info().Str("kind", "worker.send.started").Str("queue", queue.QueueCWtoWA).Msg("started")
 
-	_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusSending, nil)
+	// Idempotency guard: cw_to_wa has no upstream id we persist, so there is
+	// nothing analogous to wa_to_cw's CWMessageID-presence check. We do, however,
+	// short-circuit any retry that finds the row already in 'delivered'.
+	if msg.Status == repo.StatusDelivered {
+		log.Info().Str("kind", "worker.send.skipped.already_delivered").Msg("already delivered")
+		return nil
+	}
+
+	tryUpdateStatus(ctx, w.Queries, log, msg.ID, repo.StatusSending, nil, "sending")
 
 	var ev chatwootStored
 	if err := json.Unmarshal(msg.Payload, &ev); err != nil {
 		errMsg := err.Error()
-		_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusFailed, &errMsg)
+		tryUpdateStatus(ctx, w.Queries, log, msg.ID, repo.StatusFailed, &errMsg, "parse_payload_failed")
 		return fmt.Errorf("worker: parse stored payload: %w: %w", err, asynq.SkipRetry)
 	}
 	to := ev.Conversation.ContactInbox.SourceID
 	text := strings.TrimSpace(ev.Content)
 	if to == "" || text == "" {
 		errMsg := "missing destination or content"
-		_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusFailed, &errMsg)
+		tryUpdateStatus(ctx, w.Queries, log, msg.ID, repo.StatusFailed, &errMsg, "missing_dest_or_content")
 		return fmt.Errorf("worker: %s: %w", errMsg, asynq.SkipRetry)
 	}
 
@@ -72,7 +80,12 @@ func (w *CWtoWA) HandleTask(ctx context.Context, t *asynq.Task) error {
 		return classify(err, "megaapi.send_text")
 	}
 
-	_ = w.Queries.UpdateMessageStatus(ctx, msg.ID, repo.StatusDelivered, nil)
+	// Surface delivery-write errors so asynq retries; the idempotency guard above
+	// keeps the next attempt from re-sending to megaAPI on a transient DB blip.
+	if err := w.Queries.MarkMessageDelivered(ctx, msg.ID); err != nil {
+		log.Error().Err(err).Str("kind", "worker.db.error.set_delivered").Msg("mark delivered")
+		return fmt.Errorf("worker: mark delivered: %w", err)
+	}
 	log.Info().
 		Str("kind", "worker.send.succeeded").
 		Str("queue", queue.QueueCWtoWA).

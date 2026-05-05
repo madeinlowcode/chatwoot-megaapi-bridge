@@ -36,7 +36,9 @@ func TestJIDToPhone(t *testing.T) {
 		{"5511999999999@s.whatsapp.net", "+5511999999999"},
 		{"+5511999@x", "+5511999"},
 		{"5511999", "+5511999"},
+		{"+5511999", "+5511999"},
 		{"@x", ""},
+		{"", ""},
 	}
 	for _, c := range cases {
 		if got := jidToPhone(c.in); got != c.want {

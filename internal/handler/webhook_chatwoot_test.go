@@ -59,3 +59,30 @@ func TestChatwootHMACSignedSucceedsThroughAuth(t *testing.T) {
 	}
 }
 
+// TestChatwootHubSignature256HeaderAccepted verifies that the GitHub-style
+// X-Hub-Signature-256 fallback header is accepted: the "sha256=" prefix must
+// be stripped before length-comparing against the raw-hex HMAC. Prior to the
+// fix, all such payloads returned 401 because the prefix made the length differ.
+func TestChatwootHubSignature256HeaderAccepted(t *testing.T) {
+	secret := "abc"
+	body := []byte(`{"event":"unknown_event"}`)
+	sig := crypto.SignHMAC(body, secret)
+
+	h := &ChatwootWebhook{
+		Tenants: &stubLookuper{resolved: &tenant.Resolved{
+			ID: uuid.New(), ChatwootHMACSecret: secret,
+		}},
+		Enqueuer: nopEnqueuer{},
+	}
+	r := chi.NewRouter()
+	r.Post("/v1/cw/{slug}", h.ServeHTTP)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/cw/demo", bytes.NewReader(body))
+	req.Header.Set("X-Hub-Signature-256", "sha256="+sig)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("X-Hub-Signature-256 with sha256= prefix should not produce 401, got %d", rec.Code)
+	}
+}
+

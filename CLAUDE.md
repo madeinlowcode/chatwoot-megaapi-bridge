@@ -52,18 +52,56 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
+This is a Go 1.23 project. The `Makefile` is the canonical entrypoint.
 
 ```bash
-# Example:
-# npm install
-# npm test
+make tidy      # go mod tidy
+make test      # go test ./...
+make lint      # golangci-lint run
+make build     # go build -o bin/bridge-{api,worker} ./cmd/...
+make e2e       # bash scripts/e2e-test.sh against a live local stack
 ```
+
+Run all four (`tidy`, `test`, `lint`, `build`) before opening a PR — see
+`CONTRIBUTING.md` for details.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Two-binary bridge between megaAPI (WhatsApp) and Chatwoot:
+
+- `cmd/bridge-api`   — HTTP edge: webhook handlers (`/v1/wa/{slug}`,
+  `/v1/cw/{slug}`), tenant CLI, health endpoints. Persists incoming events to
+  Postgres and enqueues an asynq job.
+- `cmd/bridge-worker` — asynq worker: consumes the two queues
+  (`QueueWAtoCW`, `QueueCWtoWA`), calls the corresponding upstream
+  (`internal/chatwoot`, `internal/megaapi`), writes terminal status back to
+  Postgres.
+
+Shared internals live under `internal/`:
+- `tenant`  — slug → fully-decrypted runtime config, with TTL cache.
+- `crypto`  — AES-256-GCM keystore (kid-keyed envelope) + HMAC verify.
+- `repo`    — hand-coded pgx queries; mirrors `queries/*.sql` (sqlc-ready).
+- `queue`   — asynq enqueue helpers + payload types.
+- `httpx`   — shared `*http.Client` with production timeouts.
+- `observability` — zerolog with `request_id` and `tenant` context stamps.
+
+See `docs/02-architecture.md` for the full reference.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- **Beads first**: every change starts from a `bd` issue (see top of file).
+- **Style**: `gofmt`, `goimports`, `golangci.yml` lint config — `make lint`
+  before pushing.
+- **Errors**: external-API errors implement `Retriable()`; workers route via
+  `classify(err, kind)`. Never silently drop status updates — log structured
+  `kind` if returning the error would mis-route asynq.
+- **Logging**: every log line carries a structured `kind` field (e.g.
+  `webhook.inbound.accepted`) for slicing in observability dashboards.
+- **Secrets**: never log decrypted tokens. The `tenant.Resolved` struct
+  marks decrypted fields with `// decrypted; never log`.
+- **Schema/migrations**: `migrations/0001_init.sql` is authoritative;
+  `internal/db/migrations/` carries a duplicate `go:embed` copy that must
+  stay byte-identical (`diff -q` before commit).
+- **Docs**: end-user-facing docs live under `docs/`; deviations from the
+  plan are logged in `docs/implementation.md` rather than rewriting plan
+  files. See `CONTRIBUTING.md` for the full contributor checklist.

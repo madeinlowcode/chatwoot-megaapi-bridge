@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -67,9 +68,11 @@ func (h *ChatwootWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t, err := h.Tenants.Lookup(ctx, slug)
 	if err != nil {
 		if errors.Is(err, tenant.ErrNotFound) {
+			log.Warn().Str("kind", "webhook.outbound.rejected.unknown_tenant").Msg("tenant not found")
 			writeError(w, r, http.StatusNotFound, CodeTenantNotFound, "tenant not found")
 			return
 		}
+		log.Error().Err(err).Str("kind", "webhook.outbound.rejected.lookup_error").Msg("lookup failed")
 		writeError(w, r, http.StatusServiceUnavailable, CodeDependencyDown, "lookup unavailable")
 		return
 	}
@@ -80,6 +83,7 @@ func (h *ChatwootWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
 	if err != nil {
+		log.Warn().Err(err).Str("kind", "webhook.outbound.rejected.body_read").Msg("read body")
 		writeError(w, r, http.StatusBadRequest, CodePayloadInvalid, "read body")
 		return
 	}
@@ -90,9 +94,11 @@ func (h *ChatwootWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// HMAC validation. Chatwoot sends X-Chatwoot-Signature OR sometimes
 	// X-Hub-Signature-256 (varies by version). We accept both.
+	// X-Hub-Signature-256 is GitHub-style "sha256=<hex>" — strip the prefix
+	// so it lines up with our raw-hex compare in crypto.VerifyHMAC.
 	sig := r.Header.Get("X-Chatwoot-Signature")
 	if sig == "" {
-		sig = r.Header.Get("X-Hub-Signature-256")
+		sig = strings.TrimPrefix(r.Header.Get("X-Hub-Signature-256"), "sha256=")
 	}
 	if !crypto.VerifyHMAC(body, sig, t.ChatwootHMACSecret) {
 		log.Warn().Str("kind", "webhook.outbound.rejected.auth").Msg("hmac invalid")
@@ -102,6 +108,7 @@ func (h *ChatwootWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var ev chatwootWebhookEvent
 	if err := json.Unmarshal(body, &ev); err != nil {
+		log.Warn().Err(err).Str("kind", "webhook.outbound.rejected.parse").Msg("parse fail")
 		writeError(w, r, http.StatusBadRequest, CodePayloadInvalid, "invalid json")
 		return
 	}
@@ -117,25 +124,20 @@ func (h *ChatwootWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Idempotency relies on messages.UNIQUE(tenant_id, direction, external_id)
+	// surfaced as InsertMessageIfAbsent's (id, isNew, err) tuple. The separate
+	// idempotency_keys table is reserved for future replay/admin scopes; using
+	// it as a pre-flight guard here would commit a row before persist+enqueue
+	// and silently swallow real messages on a transient blip after the commit.
 	externalID := strconv.FormatInt(ev.ID, 10)
-	inserted, err := h.Queries.InsertIdempotencyKey(ctx, t.ID, "outbound", externalID)
-	if err != nil {
-		log.Error().Err(err).Str("kind", "webhook.outbound.error.idempotency").Msg("idempotency")
-		writeError(w, r, http.StatusServiceUnavailable, CodeDependencyDown, "db unavailable")
-		return
-	}
-	if !inserted {
-		log.Info().Str("external_id", externalID).Str("kind", "webhook.outbound.duplicate").Msg("duplicate")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
 	msgID, isNew, err := h.Queries.InsertMessageIfAbsent(ctx, t.ID, repo.DirectionOutbound, externalID, body)
 	if err != nil {
+		log.Error().Err(err).Str("kind", "webhook.outbound.error.persist").Msg("persist fail")
 		writeError(w, r, http.StatusServiceUnavailable, CodeDependencyDown, "db unavailable")
 		return
 	}
 	if !isNew {
+		log.Info().Str("external_id", externalID).Str("kind", "webhook.outbound.duplicate").Msg("duplicate")
 		w.WriteHeader(http.StatusOK)
 		return
 	}

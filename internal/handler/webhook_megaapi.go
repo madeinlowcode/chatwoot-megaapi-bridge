@@ -99,20 +99,16 @@ func (h *MegaapiWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// idempotency
-		inserted, err := h.Queries.InsertIdempotencyKey(ctx, t.ID, "inbound", m.Key.ID)
+		// Idempotency relies on messages.UNIQUE(tenant_id, direction, external_id)
+		// surfaced as InsertMessageIfAbsent's (id, isNew, err) tuple. We deliberately
+		// do not commit an idempotency_keys row before persist+enqueue: a transient
+		// blip after that commit would cause the upstream retry to ACK 200 without
+		// persisting/enqueueing, silently dropping a real user message.
+		msgPayload, err := json.Marshal(m)
 		if err != nil {
-			log.Error().Err(err).Str("kind", "webhook.inbound.error.idempotency").Msg("idempotency insert")
-			writeError(w, r, http.StatusServiceUnavailable, CodeDependencyDown, "db unavailable")
-			return
-		}
-		if !inserted {
-			log.Info().Str("external_id", m.Key.ID).Str("kind", "webhook.inbound.duplicate").Msg("duplicate")
+			log.Warn().Err(err).Str("kind", "webhook.inbound.rejected.marshal").Str("external_id", m.Key.ID).Msg("marshal fail")
 			continue
 		}
-
-		// persist message
-		msgPayload, _ := json.Marshal(m)
 		msgID, isNew, err := h.Queries.InsertMessageIfAbsent(ctx, t.ID, repo.DirectionInbound, m.Key.ID, msgPayload)
 		if err != nil {
 			log.Error().Err(err).Str("kind", "webhook.inbound.error.persist").Msg("persist fail")
@@ -120,7 +116,7 @@ func (h *MegaapiWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !isNew {
-			// idempotency races: row existed already
+			log.Info().Str("external_id", m.Key.ID).Str("kind", "webhook.inbound.duplicate").Msg("duplicate")
 			continue
 		}
 

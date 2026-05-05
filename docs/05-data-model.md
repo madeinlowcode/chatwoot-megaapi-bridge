@@ -31,15 +31,16 @@ CREATE INDEX idx_tenants_active ON tenants(active) WHERE active = true;
 -- CONFIGS ----------------------------------------------------
 
 CREATE TABLE megaapi_configs (
-  tenant_id        UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
-  host             TEXT NOT NULL CHECK (host ~ '^https://'),
-  instance_key     TEXT NOT NULL,
-  bearer_token_enc BYTEA NOT NULL,            -- AES-GCM ciphertext
-  bearer_token_kid SMALLINT NOT NULL,         -- key id para rotação
-  webhook_secret   TEXT,
-  rate_limit_rps   INTEGER NOT NULL DEFAULT 20,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  tenant_id          UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  host               TEXT NOT NULL CHECK (host ~ '^https://'),
+  instance_key       TEXT NOT NULL,
+  bearer_token_enc   BYTEA NOT NULL,            -- AES-GCM ciphertext
+  bearer_token_kid   SMALLINT NOT NULL,         -- key id para rotação
+  webhook_bearer_enc BYTEA NOT NULL,            -- AES-GCM ciphertext (Phase 1 deviation: encrypted at rest)
+  webhook_bearer_kid SMALLINT NOT NULL,
+  rate_limit_rps     INTEGER NOT NULL DEFAULT 20,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(host, instance_key)
 );
 
