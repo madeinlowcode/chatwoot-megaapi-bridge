@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bridge}
+      POSTGRES_USER: ${POSTGRES_USER:-bridge}
+      POSTGRES_DB: ${POSTGRES_DB:-bridge}
+    volumes:
+      - bridge_pg_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bridge} -d ${POSTGRES_DB:-bridge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-bridge}"]
+    volumes:
+      - bridge_redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-bridge}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  bridge-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: ${BRIDGE_IMAGE:-bridge:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: bridge-api
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-bridge}:${POSTGRES_PASSWORD:-bridge}@postgres:5432/${POSTGRES_DB:-bridge}?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-bridge}"
+      MASTER_KEY: "${MASTER_KEY}"
+      MIGRATE_MODE: "${MIGRATE_MODE:-manual}"
+    ports:
+      - "${BRIDGE_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  bridge-worker:
+    image: ${BRIDGE_IMAGE:-bridge:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: ["/bridge-worker"]
+    environment:
+      SERVICE_NAME: bridge-worker
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: "postgres://${POSTGRES_USER:-bridge}:${POSTGRES_PASSWORD:-bridge}@postgres:5432/${POSTGRES_DB:-bridge}?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-bridge}"
+      MASTER_KEY: "${MASTER_KEY}"
+      MIGRATE_MODE: manual
+    restart: unless-stopped
+
+volumes:
+  bridge_pg_data:
+  bridge_redis_data:

@@ -3,3 +3,38 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Vendor
+vendor/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.env.local
+
+# Archon runtime
+.archon/logs/
+.archon/artifacts/
