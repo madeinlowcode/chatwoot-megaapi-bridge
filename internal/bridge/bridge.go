@@ -285,7 +285,15 @@ func (s *Server) processInbound(ctx context.Context, job Job) error {
 	}); err != nil {
 		return err
 	}
-	return s.postChatwootMessage(ctx, tenant, convID, waText(p), p.Key.ID)
+	var atts []Attachment
+	if a, ok := waAttachment(p); ok {
+		atts = []Attachment{a}
+	}
+	content := waText(p)
+	if content == "" && len(atts) > 0 {
+		content = atts[0].Caption
+	}
+	return s.postChatwootMessage(ctx, tenant, convID, content, p.Key.ID, atts)
 }
 
 func (s *Server) processOutbound(ctx context.Context, job Job) error {
@@ -394,11 +402,18 @@ func (s *Server) cwCreateConversation(ctx context.Context, t Tenant, contactID i
 	return resp.ID, nil
 }
 
-func (s *Server) postChatwootMessage(ctx context.Context, t Tenant, convID int64, content, externalID string) error {
+func (s *Server) postChatwootMessage(ctx context.Context, t Tenant, convID int64, content, externalID string, attachments []Attachment) error {
 	body := map[string]any{
 		"content":            content,
 		"message_type":       "incoming",
 		"content_attributes": map[string]any{"external_id": externalID},
+	}
+	if len(attachments) > 0 {
+		out := make([]map[string]any, 0, len(attachments))
+		for _, a := range attachments {
+			out = append(out, map[string]any{"file_url": a.URL, "file_type": a.Kind})
+		}
+		body["attachments"] = out
 	}
 	url := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages",
 		strings.TrimRight(t.ChatwootURL, "/"), t.ChatwootAccountID, convID)

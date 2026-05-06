@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,38 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPostChatwootMessage_WithAttachment_IncludesFileURL(t *testing.T) {
+	var captured map[string]any
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer mock.Close()
+	key := bytes.Repeat([]byte{1}, 32)
+	tokEnc, _ := Encrypt([]byte("tok"), key)
+	t1 := Tenant{
+		ID: uuid.New(), ChatwootURL: mock.URL,
+		ChatwootTokenEnc: tokEnc, ChatwootAccountID: 1, ChatwootInboxID: 5,
+	}
+	s := &Server{Key: key}
+	att := []Attachment{{URL: "https://media.example/img.jpg", Kind: "image", Caption: "hi"}}
+	if err := s.postChatwootMessage(context.Background(), t1, 42, "hi", "WAID-1", att); err != nil {
+		t.Fatalf("postChatwootMessage: %v", err)
+	}
+	atts, _ := captured["attachments"].([]any)
+	if len(atts) != 1 {
+		t.Fatalf("expected 1 attachment in body, got %d", len(atts))
+	}
+	first, _ := atts[0].(map[string]any)
+	if first["file_url"] != "https://media.example/img.jpg" {
+		t.Errorf("file_url: got %v", first["file_url"])
+	}
+	if first["file_type"] != "image" {
+		t.Errorf("file_type: got %v", first["file_type"])
+	}
+}
 
 func TestRetriable_DefaultIsRetriable(t *testing.T) {
 	require.True(t, isRetriable(errors.New("network")))
@@ -78,7 +111,7 @@ func TestPostChatwootMessage_SendsExternalID(t *testing.T) {
 	}))
 	defer srv.Close()
 	s, t2 := newBridgeWithCW(t, srv.URL)
-	err := s.postChatwootMessage(context.Background(), t2, 99, "hello", "wa-1")
+	err := s.postChatwootMessage(context.Background(), t2, 99, "hello", "wa-1", nil)
 	require.NoError(t, err)
 	require.Equal(t, "hello", captured["content"])
 	attrs := captured["content_attributes"].(map[string]any)
