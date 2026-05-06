@@ -142,6 +142,17 @@ type waPayload struct {
 			URL      string `json:"url"`
 			MimeType string `json:"mimetype"`
 		} `json:"stickerMessage"`
+		Video struct {
+			URL      string `json:"url"`
+			MimeType string `json:"mimetype"`
+			Caption  string `json:"caption"`
+		} `json:"videoMessage"`
+		Document struct {
+			URL      string `json:"url"`
+			MimeType string `json:"mimetype"`
+			FileName string `json:"fileName"`
+			Caption  string `json:"caption"`
+		} `json:"documentMessage"`
 	} `json:"message"`
 }
 
@@ -229,6 +240,18 @@ func waAttachment(p waPayload) (Attachment, bool) {
 	if p.Message.Sticker.URL != "" {
 		return Attachment{
 			URL: p.Message.Sticker.URL, MimeType: p.Message.Sticker.MimeType, Kind: "image",
+		}, true
+	}
+	if p.Message.Video.URL != "" {
+		return Attachment{
+			URL: p.Message.Video.URL, MimeType: p.Message.Video.MimeType,
+			Caption: p.Message.Video.Caption, Kind: "video",
+		}, true
+	}
+	if p.Message.Document.URL != "" {
+		return Attachment{
+			URL: p.Message.Document.URL, MimeType: p.Message.Document.MimeType,
+			Caption: p.Message.Document.Caption, FileName: p.Message.Document.FileName, Kind: "document",
 		}, true
 	}
 	return Attachment{}, false

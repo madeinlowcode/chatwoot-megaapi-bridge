@@ -267,3 +267,38 @@ func TestWaAttachment_StickerMessage(t *testing.T) {
 		t.Fatalf("sticker: %+v ok=%v", att, ok)
 	}
 }
+
+func TestWaAttachment_VideoMessage(t *testing.T) {
+	body := []byte(`{
+		"key":{"id":"WAID-4","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"message":{"videoMessage":{"url":"https://media.example/v.mp4","mimetype":"video/mp4","caption":"watch"}}
+	}`)
+	p, _ := parseWA(body)
+	att, ok := waAttachment(p)
+	if !ok || att.URL != "https://media.example/v.mp4" || att.Kind != "video" || att.Caption != "watch" {
+		t.Fatalf("video: %+v ok=%v", att, ok)
+	}
+}
+
+func TestWaAttachment_DocumentMessage(t *testing.T) {
+	body := []byte(`{
+		"key":{"id":"WAID-5","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"message":{"documentMessage":{"url":"https://media.example/doc.pdf","mimetype":"application/pdf","fileName":"contract.pdf","caption":"sign"}}
+	}`)
+	p, _ := parseWA(body)
+	att, ok := waAttachment(p)
+	if !ok || att.FileName != "contract.pdf" || att.Kind != "document" {
+		t.Fatalf("doc: %+v ok=%v", att, ok)
+	}
+}
+
+func TestWaAttachment_TextOnly_ReturnsFalse(t *testing.T) {
+	body := []byte(`{
+		"key":{"id":"WAID-6","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"message":{"conversation":"hi"}
+	}`)
+	p, _ := parseWA(body)
+	if _, ok := waAttachment(p); ok {
+		t.Fatalf("expected no attachment for text-only")
+	}
+}
