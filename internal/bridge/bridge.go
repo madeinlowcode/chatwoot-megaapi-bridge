@@ -340,10 +340,24 @@ func (s *Server) processOutbound(ctx context.Context, job Job) error {
 	if jid == "" {
 		jid = p.Sender.PhoneNumber
 	}
-	if jid == "" || p.Content == "" {
+	atts := cwAttachments(p)
+	if jid == "" || (p.Content == "" && len(atts) == 0) {
 		return notRetriable(errors.New("missing recipient or content"))
 	}
-	return s.sendMegaAPIText(ctx, tenant, jid, p.Content)
+	if len(atts) == 0 {
+		return s.sendMegaAPIText(ctx, tenant, jid, p.Content)
+	}
+	for i, a := range atts {
+		if i == 0 {
+			a.Caption = p.Content
+		} else {
+			a.Caption = ""
+		}
+		if err := s.sendMegaAPIMedia(ctx, tenant, jid, a); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) tenantByID(ctx context.Context, id uuid.UUID) (Tenant, error) {
