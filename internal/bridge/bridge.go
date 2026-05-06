@@ -180,6 +180,10 @@ type cwPayload struct {
 		Name        string `json:"name"`
 		PhoneNumber string `json:"phone_number"`
 	} `json:"sender"`
+	Attachments []struct {
+		FileType string `json:"file_type"`
+		DataURL  string `json:"data_url"`
+	} `json:"attachments"`
 }
 
 func extractWAExternalID(body []byte) (string, bool) {
@@ -216,6 +220,33 @@ func parseCW(body []byte) (cwPayload, error) {
 	var p cwPayload
 	err := json.Unmarshal(body, &p)
 	return p, err
+}
+
+func cwAttachments(p cwPayload) []Attachment {
+	if len(p.Attachments) == 0 {
+		return nil
+	}
+	out := make([]Attachment, 0, len(p.Attachments))
+	for _, a := range p.Attachments {
+		if a.DataURL == "" {
+			continue
+		}
+		out = append(out, Attachment{URL: a.DataURL, Kind: cwTypeToMega(a.FileType)})
+	}
+	return out
+}
+
+func cwTypeToMega(ft string) string {
+	switch ft {
+	case "image":
+		return "image"
+	case "audio":
+		return "audio"
+	case "video":
+		return "video"
+	default:
+		return "document"
+	}
 }
 
 func waText(p waPayload) string {

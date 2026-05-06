@@ -325,6 +325,31 @@ func TestWaAttachment_DocumentMessage(t *testing.T) {
 	}
 }
 
+func TestCwAttachments_Extracts(t *testing.T) {
+	body := []byte(`{
+		"event":"message_created","message_type":"outgoing","private":false,"id":42,
+		"content":"hello","conversation":{"id":1,"contact_inbox":{"source_id":"5511999999999"}},
+		"attachments":[
+			{"file_type":"image","data_url":"https://cw.example/a.jpg"},
+			{"file_type":"file","data_url":"https://cw.example/b.pdf"}
+		]
+	}`)
+	p, err := parseCW(body)
+	if err != nil {
+		t.Fatalf("parseCW: %v", err)
+	}
+	atts := cwAttachments(p)
+	if len(atts) != 2 {
+		t.Fatalf("expected 2, got %d", len(atts))
+	}
+	if atts[0].URL != "https://cw.example/a.jpg" || atts[0].Kind != "image" {
+		t.Errorf("att0: %+v", atts[0])
+	}
+	if atts[1].Kind != "document" {
+		t.Errorf("att1.Kind: got %q want document", atts[1].Kind)
+	}
+}
+
 func TestWaAttachment_TextOnly_ReturnsFalse(t *testing.T) {
 	body := []byte(`{
 		"key":{"id":"WAID-6","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
