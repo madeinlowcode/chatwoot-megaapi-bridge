@@ -243,3 +243,27 @@ func TestWaAttachment_ImageMessage(t *testing.T) {
 		t.Errorf("Kind: got %q", att.Kind)
 	}
 }
+
+func TestWaAttachment_AudioMessage(t *testing.T) {
+	body := []byte(`{
+		"key":{"id":"WAID-2","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"message":{"audioMessage":{"url":"https://media.example/audio.ogg","mimetype":"audio/ogg","ptt":true}}
+	}`)
+	p, _ := parseWA(body)
+	att, ok := waAttachment(p)
+	if !ok || att.URL != "https://media.example/audio.ogg" || att.Kind != "audio" {
+		t.Fatalf("audio: %+v ok=%v", att, ok)
+	}
+}
+
+func TestWaAttachment_StickerMessage(t *testing.T) {
+	body := []byte(`{
+		"key":{"id":"WAID-3","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"message":{"stickerMessage":{"url":"https://media.example/sticker.webp","mimetype":"image/webp"}}
+	}`)
+	p, _ := parseWA(body)
+	att, ok := waAttachment(p)
+	if !ok || att.URL != "https://media.example/sticker.webp" || att.Kind != "image" {
+		t.Fatalf("sticker: %+v ok=%v", att, ok)
+	}
+}
