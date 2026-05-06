@@ -321,6 +321,52 @@ func TestProcessInbound_ImageMessage_PostsAttachmentToCW(t *testing.T) {
 	require.Equal(t, "hello", capturedBody["content"])
 }
 
+func TestProcessInbound_DocumentMessage_PostsFileNameAndCaption(t *testing.T) {
+	db := setupDB(t)
+	var capturedBody map[string]any
+	cwMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/messages"):
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		case strings.Contains(r.URL.Path, "/contacts"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":12}}}`))
+		case strings.Contains(r.URL.Path, "/conversations"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":100}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer cwMock.Close()
+	key := bytes.Repeat([]byte{1}, 32)
+	tokEnc, _ := Encrypt([]byte("tok"), key)
+	tID, err := db.InsertTenant(context.Background(), TenantInsert{
+		Slug: "demo-doc", MegaAPIHost: "http://x", MegaAPIInstance: "abc",
+		MegaAPITokenEnc: tokEnc, ChatwootURL: cwMock.URL, ChatwootTokenEnc: tokEnc,
+		ChatwootAccountID: 1, ChatwootInboxID: 5,
+		HMACSecretEnc: tokEnc, WebhookBearerEnc: tokEnc,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1`, tID)
+	})
+	s := &Server{Key: key, DB: db}
+	body := []byte(`{
+		"key":{"id":"WAID-DOC","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"pushName":"Alice",
+		"message":{"documentMessage":{"url":"https://media.example/c.pdf","mimetype":"application/pdf","fileName":"contract.pdf","caption":"sign please"}}
+	}`)
+	require.NoError(t, s.processInbound(context.Background(), Job{TenantID: tID, Payload: body}))
+	require.Equal(t, "sign please", capturedBody["content"])
+	atts, _ := capturedBody["attachments"].([]any)
+	require.Equal(t, 1, len(atts))
+	first := atts[0].(map[string]any)
+	require.Equal(t, "document", first["file_type"])
+}
+
 func TestRecoverPending_FullChannelSkipsNotBlocks(t *testing.T) {
 	db := setupDB(t)
 	key := RandomBytes(32)
