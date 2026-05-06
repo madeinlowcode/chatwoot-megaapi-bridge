@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -83,7 +84,13 @@ func (s *Server) handleWAWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.checkBearer(r, tenant) {
+	authed, err := s.checkBearer(r, tenant)
+	if err != nil {
+		s.Log.Err(err).Str("tenant_id", tenant.ID.String()).Msg("decrypt webhook bearer")
+		http.Error(w, "crypto error", http.StatusInternalServerError)
+		return
+	}
+	if !authed {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -108,7 +115,13 @@ func (s *Server) handleCWWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.checkHMAC(r, tenant, body) {
+	authed, err := s.checkHMAC(r, tenant, body)
+	if err != nil {
+		s.Log.Err(err).Str("tenant_id", tenant.ID.String()).Msg("decrypt hmac secret")
+		http.Error(w, "crypto error", http.StatusInternalServerError)
+		return
+	}
+	if !authed {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -171,21 +184,24 @@ func (s *Server) enqueue(w http.ResponseWriter, ctx context.Context, tenantID uu
 	}
 }
 
-func (s *Server) checkBearer(r *http.Request, t Tenant) bool {
+func (s *Server) checkBearer(r *http.Request, t Tenant) (bool, error) {
 	tok, err := Decrypt(t.WebhookBearerEnc, s.Key)
 	if err != nil {
-		return false
+		return false, err
 	}
 	got := strings.TrimPrefix(r.Header.Get("Authorization"), bearerPrefix)
-	return got != "" && got == string(tok)
+	if got == "" {
+		return false, nil
+	}
+	return subtle.ConstantTimeCompare([]byte(got), tok) == 1, nil
 }
 
-func (s *Server) checkHMAC(r *http.Request, t Tenant, body []byte) bool {
+func (s *Server) checkHMAC(r *http.Request, t Tenant, body []byte) (bool, error) {
 	secret, err := Decrypt(t.HMACSecretEnc, s.Key)
 	if err != nil {
-		return false
+		return false, err
 	}
-	return VerifyHMAC(body, r.Header.Get(hmacHeader), string(secret))
+	return VerifyHMAC(body, r.Header.Get(hmacHeader), string(secret)), nil
 }
 
 func readBody(r *http.Request) ([]byte, error) {

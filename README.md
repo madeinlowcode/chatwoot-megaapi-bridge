@@ -55,7 +55,7 @@ make lint          # go vet + golangci-lint
 make build         # static binary
 ```
 
-Go 1.23+ required.
+Go 1.25+ required (the `testcontainers-go` indirect dep sets the floor).
 
 ## License
 

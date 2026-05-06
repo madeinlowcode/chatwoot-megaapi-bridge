@@ -52,18 +52,54 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+make test          # unit tests (no Docker required)
+make integration   # testcontainers-based DB tests (Docker required)
+make lint          # go vet + golangci-lint
+make build         # static binary -> ./bridge
+make run           # build + run `bridge serve`
 ```
+
+Go 1.23+ required. CI gate: `make lint test`.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Flat-first MVP — see [`.agents/plans/reset-mvp.md`](.agents/plans/reset-mvp.md)
+for the deliberate scope-reduction decisions.
+
+- **1 package** `internal/bridge/` — server, storage, crypto, bridge core
+  (no `internal/server`, no `internal/queue`, no premature subdomain split).
+- **1 binary** `cmd/bridge/` with subcommands `serve`, `migrate`, `tenant add`.
+- **3 tables** `tenants`, `contacts`, `messages`. Idempotency lives in the
+  `messages` UNIQUE `(tenant_id, direction, external_id)` — no `idempotency_keys`
+  table.
+- **In-process channels** for the worker queue (no Redis, no asynq). Restart
+  recovery uses `RecoverPending` over `messages.payload` (Deviation 1).
+- **AES-256-GCM** at-rest for tenant secrets; **HMAC-SHA256** for inbound
+  Chatwoot webhook signatures.
+
+Two HTTP routes drive everything: `POST /v1/wa/{slug}` (Bearer-authed,
+megaAPI → Chatwoot) and `POST /v1/cw/{slug}` (HMAC-authed, Chatwoot → megaAPI).
+Health: `/healthz`, `/readyz`.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+Hard constraints from the reset-MVP plan — do not violate without updating
+the plan first:
+
+- **No speculative interfaces.** `Repository`, `Service`, `Manager` placeholders
+  are forbidden until there is a second concrete implementation.
+- **Concrete types end-to-end.** `*bridge.DB`, `*bridge.Server` — no
+  `interface{}` boundaries that exist "just in case".
+- **Functions ≤ 2 params** unless `ctx context.Context` plus idiomatic args
+  (e.g. handlers, struct receivers).
+- **`bridge` is one package** until a second consumer of its types appears.
+  Don't split into subpackages on aesthetic grounds.
+- **No comments without a WHY.** Identifier names already say _what_; comments
+  should explain non-obvious invariants, hidden constraints, or workarounds.
+- **No backwards-compat shims.** This is pre-1.0 — change the call site, don't
+  keep a renamed wrapper around.
+- **Errors:** `retriableError` / `fatalError` sentinels; default is retry.
+  Wrap with `notRetriable(err)` to short-circuit the retry loop.
+- **Crypto primitives** (`Encrypt`, `Decrypt`, `VerifyHMAC`) live in
+  `crypto.go` and use `crypto/subtle` for comparisons.

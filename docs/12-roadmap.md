@@ -5,44 +5,57 @@
 Entregar valor incremental. Cada fase é deployável e testável de ponta a
 ponta. Não há "fase preparatória" sem entrega de função visível.
 
-## Fase 0 — Planejamento (atual)
+## Fase 0 — Planejamento
 
-**Status:** Em andamento.
+**Status:** ✅ Concluída.
 
 Entregas:
 - [x] Pesquisa de viabilidade
 - [x] Definição de arquitetura
 - [x] Documentação completa em `/docs`
 - [x] Issues criadas no `bd`
-- [ ] Aprovação do plano com stakeholders
-- [ ] Setup do repo (git, CI básico, licença)
+- [x] Aprovação do plano com stakeholders
+- [x] Setup do repo (git, licença)
 
 **Saída:** Aprovação para começar Fase 1.
 
 ---
 
-## Fase 1 — MVP funcional (semanas 1–3)
+## Fase 1 — MVP funcional (entregue)
+
+**Status:** ✅ Entregue como **reset MVP "flat-first"** — ver
+[`.agents/plans/reset-mvp.md`](../.agents/plans/reset-mvp.md). O escopo abaixo
+foi deliberadamente reduzido em relação ao planejado originalmente; itens
+adiados aparecem em fases posteriores ou ficaram como deviations registrados.
 
 **Objetivo:** 1 tenant manda e recebe mensagem texto end-to-end.
 
 Entregas:
-- [ ] Estrutura inicial Go (cmd/, internal/, sqlc, migrations)
-- [ ] Schema PostgreSQL aplicado
-- [ ] Cliente HTTP megaAPI (sendText, configWebhook, status)
-- [ ] Cliente HTTP Chatwoot (contact create, conversation create, message
-      create)
-- [ ] HTTP server bridge-api com rotas `/v1/wa/{slug}` e `/v1/cw/{slug}`
-- [ ] Asynq queue + worker básico
-- [ ] CRUD tenant via CLI (`bridge tenants create/list/delete`)
-- [ ] Encryption AES-GCM dos tokens
-- [ ] HMAC validation Chatwoot
-- [ ] Idempotência (tabela `idempotency_keys`)
-- [ ] Logs estruturados zerolog
-- [ ] Dockerfile multi-stage scratch
-- [ ] docker-compose.yml com 5 serviços
-- [ ] README com instruções básicas
+- [x] Estrutura inicial Go (`cmd/bridge/`, `internal/bridge/`, `migrations/`)
+- [x] Schema PostgreSQL aplicado (3 tabelas: `tenants`, `contacts`, `messages`)
+- [x] Cliente HTTP megaAPI (`sendMegaAPIText`)
+- [x] Cliente HTTP Chatwoot (criar contato, conversa, mensagem)
+- [x] HTTP server bridge com rotas `/v1/wa/{slug}` e `/v1/cw/{slug}`
+- [x] Worker pool com canais Go in-process (sem Redis, sem asynq)
+- [x] CLI `bridge tenant add`
+- [x] Encryption AES-256-GCM dos tokens
+- [x] HMAC validation Chatwoot
+- [x] Idempotência via `UNIQUE (tenant_id, direction, external_id)` em
+      `messages` (sem tabela `idempotency_keys` separada)
+- [x] Logs estruturados zerolog
+- [x] Dockerfile multi-stage scratch
+- [x] `docker-compose.yml` (2 serviços: postgres + bridge)
+- [x] README com instruções básicas
+- [x] Recuperação de pending no boot (`RecoverPending` via `messages.payload`)
 
-**Critério de saída:**
+**Adiado (sai em fases posteriores):**
+
+- `sqlc` — `pgx` puro é suficiente para o MVP.
+- `Asynq` / Redis — canais Go in-process resolvem com restart-recovery.
+- Tabela `idempotency_keys` — UNIQUE em `messages` cobre o caso.
+- `docker-compose` com 5 serviços — 2 bastam (postgres + bridge).
+
+**Critério de saída (atendido):**
 - Mandar WhatsApp pra número conectado → mensagem aparece no Chatwoot.
 - Responder no Chatwoot → mensagem chega no WhatsApp.
 - Texto apenas. Mídia não.

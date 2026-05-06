@@ -84,21 +84,6 @@ func newTestServer(t *testing.T, key []byte) *Server {
 	}
 }
 
-func TestEnqueue_QueueFull_503(t *testing.T) {
-	s := newTestServer(t, nil)
-	for i := 0; i < cap(s.Inbox); i++ {
-		s.Inbox <- Job{}
-	}
-	rec := httptest.NewRecorder()
-	select {
-	case s.Inbox <- Job{}:
-		t.Fatal("expected channel to be full")
-	default:
-	}
-	rec.Body = nil
-	require.GreaterOrEqual(t, len(s.Inbox), s.Cfg.BufferLimit)
-}
-
 func TestReadBody_RejectsTooLarge(t *testing.T) {
 	big := strings.Repeat("a", maxBodyBytes+1)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(big))

@@ -85,36 +85,105 @@ func TestPostChatwootMessage_SendsExternalID(t *testing.T) {
 	require.Equal(t, "wa-1", attrs["external_id"])
 }
 
-func TestRunJob_RetriesUntilSuccess(t *testing.T) {
-	s := newTestServer(t, nil)
-	s.DB = nil
+func TestRunRetryLoop_SucceedsFirstAttempt(t *testing.T) {
 	calls := atomic.Int32{}
-	fn := func(_ context.Context, _ Job) error {
-		if calls.Add(1) < 2 {
+	err := runRetryLoop(context.Background(), []time.Duration{0, 0, 0}, func() error {
+		calls.Add(1)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestRunRetryLoop_RunsFourAttemptsWithThreeBackoffs(t *testing.T) {
+	calls := atomic.Int32{}
+	err := runRetryLoop(context.Background(), []time.Duration{0, 0, 0}, func() error {
+		calls.Add(1)
+		return retriable(errors.New("boom"))
+	})
+	require.Error(t, err)
+	require.Equal(t, int32(4), calls.Load())
+}
+
+func TestRunRetryLoop_FatalShortCircuits(t *testing.T) {
+	calls := atomic.Int32{}
+	err := runRetryLoop(context.Background(), []time.Duration{0, 0, 0}, func() error {
+		calls.Add(1)
+		return notRetriable(errors.New("400"))
+	})
+	require.Error(t, err)
+	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestRunRetryLoop_RetriableThenSuccess(t *testing.T) {
+	calls := atomic.Int32{}
+	err := runRetryLoop(context.Background(), []time.Duration{0, 0, 0}, func() error {
+		if calls.Add(1) < 3 {
 			return retriable(errors.New("boom"))
 		}
 		return nil
-	}
-	short := []time.Duration{0, 0, 0}
-	old := retryBackoff
-	retryBackoff = short
-	defer func() { retryBackoff = old }()
-
-	ctx := context.Background()
-	job := Job{MessageID: uuid.New()}
-	require.NotPanics(t, func() { runJobNoDB(ctx, fn, job) })
-	require.Equal(t, int32(2), calls.Load())
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(3), calls.Load())
 }
 
-func runJobNoDB(ctx context.Context, fn func(context.Context, Job) error, job Job) {
-	for _, wait := range retryBackoff {
-		if wait > 0 {
-			time.Sleep(wait)
-		}
-		if err := fn(ctx, job); err == nil {
-			return
-		}
+func TestRunRetryLoop_ContextCancelStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := atomic.Int32{}
+	err := runRetryLoop(ctx, []time.Duration{50 * time.Millisecond, 50 * time.Millisecond, 50 * time.Millisecond}, func() error {
+		calls.Add(1)
+		return retriable(errors.New("boom"))
+	})
+	require.Error(t, err)
+	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestCheckBearer_RejectsMismatchAndAcceptsMatch(t *testing.T) {
+	key := RandomBytes(32)
+	enc, err := Encrypt([]byte("right-token"), key)
+	require.NoError(t, err)
+	s := &Server{Key: key}
+	tn := Tenant{WebhookBearerEnc: enc}
+
+	cases := []struct {
+		name   string
+		header string
+		want   bool
+	}{
+		{"missing header", "", false},
+		{"empty bearer", "Bearer ", false},
+		{"wrong token", "Bearer wrong-token", false},
+		{"right token", "Bearer right-token", true},
 	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if c.header != "" {
+				req.Header.Set("Authorization", c.header)
+			}
+			ok, err := s.checkBearer(req, tn)
+			require.NoError(t, err)
+			require.Equal(t, c.want, ok)
+		})
+	}
+}
+
+func TestCheckBearer_DecryptErrorSurfaces(t *testing.T) {
+	s := &Server{Key: RandomBytes(32)}
+	tn := Tenant{WebhookBearerEnc: []byte("not-a-valid-ciphertext")}
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Authorization", "Bearer anything")
+	_, err := s.checkBearer(req, tn)
+	require.Error(t, err)
+}
+
+func TestCheckHMAC_DecryptErrorSurfaces(t *testing.T) {
+	s := &Server{Key: RandomBytes(32)}
+	tn := Tenant{HMACSecretEnc: []byte("not-a-valid-ciphertext")}
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	_, err := s.checkHMAC(req, tn, []byte(`{}`))
+	require.Error(t, err)
 }
 
 func newBridgeWithMega(t *testing.T, host string) (*Server, Tenant) {

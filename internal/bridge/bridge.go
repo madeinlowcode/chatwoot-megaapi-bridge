@@ -54,29 +54,45 @@ func (s *Server) runPool(ctx context.Context, wg *sync.WaitGroup, ch <-chan Job,
 	}
 }
 
-func (s *Server) runJob(ctx context.Context, job Job,
-	fn func(context.Context, Job) error) {
+func runRetryLoop(ctx context.Context, backoffs []time.Duration, attempt func() error) error {
 	var err error
-	for i, wait := range retryBackoff {
+	for i := 0; i <= len(backoffs); i++ {
 		if i > 0 {
 			select {
 			case <-ctx.Done():
-				return
-			case <-time.After(wait):
+				return ctx.Err()
+			case <-time.After(backoffs[i-1]):
 			}
 		}
-		_ = s.DB.IncrementAttempts(ctx, job.MessageID)
-		if err = fn(ctx, job); err == nil {
-			_ = s.DB.MarkStatus(ctx, job.MessageID, "done", "")
-			return
+		if err = attempt(); err == nil {
+			return nil
 		}
 		if !isRetriable(err) {
-			break
+			return err
 		}
 	}
-	if err != nil {
-		s.Log.Err(err).Str("msg_id", job.MessageID.String()).Msg("job failed")
-		_ = s.DB.MarkStatus(ctx, job.MessageID, "failed", err.Error())
+	return err
+}
+
+func (s *Server) runJob(ctx context.Context, job Job,
+	fn func(context.Context, Job) error) {
+	err := runRetryLoop(ctx, retryBackoff, func() error {
+		_ = s.DB.IncrementAttempts(ctx, job.MessageID)
+		return fn(ctx, job)
+	})
+	if err == nil {
+		if e := s.DB.MarkStatus(ctx, job.MessageID, "done", ""); e != nil {
+			s.Log.Err(e).Str("msg_id", job.MessageID.String()).
+				Msg("mark done failed — message may be replayed on restart")
+		}
+		return
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	s.Log.Err(err).Str("msg_id", job.MessageID.String()).Msg("job failed")
+	if e := s.DB.MarkStatus(ctx, job.MessageID, "failed", err.Error()); e != nil {
+		s.Log.Err(e).Str("msg_id", job.MessageID.String()).Msg("mark failed update failed")
 	}
 }
 
@@ -258,8 +274,12 @@ func isRetriable(err error) bool {
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 func (s *Server) resolveContact(ctx context.Context, t Tenant, jid, name string) (int64, int64, error) {
-	if c, err := s.DB.GetContact(ctx, t.ID, jid); err == nil {
+	c, err := s.DB.GetContact(ctx, t.ID, jid)
+	if err == nil {
 		return c.CWContactID, c.CWConversationID, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return 0, 0, retriable(err)
 	}
 	contactID, err := s.cwCreateContact(ctx, t, jid, name)
 	if err != nil {

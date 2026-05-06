@@ -4,8 +4,11 @@ Bridge multi-tenant em Go que conecta **Chatwoot self-hosted** à **megaAPI**
 (WhatsApp não-oficial), com host megaAPI dinâmico por tenant, alta vazão de
 mensagens, filas de retry, e instalação fácil para usuários leigos.
 
-> **Status:** Fase de planejamento. Nenhum código produzido. Toda
-> implementação depende de aprovação dos documentos abaixo.
+> **Status:** MVP entregue (PR #2 — `feat: reset MVP — flat-first chatwoot-megaapi-bridge`).
+> Os documentos abaixo descrevem o **design de longo prazo**. A implementação
+> atual é um subconjunto deliberadamente reduzido — ver [`README.md`](../README.md)
+> para o que roda hoje e `.agents/plans/reset-mvp.md` para as decisões de escopo
+> "flat-first".
 
 ## Índice
 
