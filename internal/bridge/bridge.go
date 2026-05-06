@@ -128,7 +128,20 @@ type waPayload struct {
 		Extended     struct {
 			Text string `json:"text"`
 		} `json:"extendedTextMessage"`
+		Image struct {
+			URL      string `json:"url"`
+			MimeType string `json:"mimetype"`
+			Caption  string `json:"caption"`
+		} `json:"imageMessage"`
 	} `json:"message"`
+}
+
+type Attachment struct {
+	URL      string
+	MimeType string
+	Caption  string
+	FileName string
+	Kind     string // "image" | "audio" | "video" | "document" | "sticker"
 }
 
 type cwPayload struct {
@@ -190,6 +203,16 @@ func waText(p waPayload) string {
 		return p.Message.Conversation
 	}
 	return p.Message.Extended.Text
+}
+
+func waAttachment(p waPayload) (Attachment, bool) {
+	if p.Message.Image.URL != "" {
+		return Attachment{
+			URL: p.Message.Image.URL, MimeType: p.Message.Image.MimeType,
+			Caption: p.Message.Image.Caption, Kind: "image",
+		}, true
+	}
+	return Attachment{}, false
 }
 
 func waContactJID(p waPayload) string {

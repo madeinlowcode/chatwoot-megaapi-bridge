@@ -216,3 +216,30 @@ func newBridgeWithCW(t *testing.T, host string) (*Server, Tenant) {
 	}
 	return s, tn
 }
+
+func TestWaAttachment_ImageMessage(t *testing.T) {
+	body := []byte(`{
+		"key":{"id":"WAID-1","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
+		"message":{"imageMessage":{"url":"https://media.example/img.jpg","mimetype":"image/jpeg","caption":"hello"}}
+	}`)
+	p, err := parseWA(body)
+	if err != nil {
+		t.Fatalf("parseWA: %v", err)
+	}
+	att, ok := waAttachment(p)
+	if !ok {
+		t.Fatalf("expected attachment, got none")
+	}
+	if att.URL != "https://media.example/img.jpg" {
+		t.Errorf("URL: got %q", att.URL)
+	}
+	if att.MimeType != "image/jpeg" {
+		t.Errorf("MimeType: got %q", att.MimeType)
+	}
+	if att.Caption != "hello" {
+		t.Errorf("Caption: got %q", att.Caption)
+	}
+	if att.Kind != "image" {
+		t.Errorf("Kind: got %q", att.Kind)
+	}
+}
