@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bridge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bridge}
+      POSTGRES_DB: ${POSTGRES_DB:-bridge}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bridge}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - bridge_db:/var/lib/postgresql/data
+
+  bridge:
+    image: ${BRIDGE_IMAGE:-bridge:latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-bridge}:${POSTGRES_PASSWORD:-bridge}@db:5432/${POSTGRES_DB:-bridge}?sslmode=disable
+      MASTER_KEY: ${MASTER_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BRIDGE_PORT: ${BRIDGE_PORT:-8080}
+    ports:
+      - "${BRIDGE_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/bridge", "--help"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  bridge_db:

@@ -3,3 +3,24 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# Go build artifacts
+/bridge
+/bridge.exe
+*.exe
+*.test
+*.out
+coverage
+coverage.out
+coverage.txt
+
+# Local env
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# Archon workflow internals
+.archon/artifacts/
+.archon/logs/
