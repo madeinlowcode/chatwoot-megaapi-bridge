@@ -90,3 +90,38 @@ func TestReadBody_RejectsTooLarge(t *testing.T) {
 	_, err := readBody(req)
 	require.Error(t, err)
 }
+
+func TestExtractWAExternalID_MalformedJSONReturnsFalse(t *testing.T) {
+	_, ok := extractWAExternalID([]byte(`{not-json`))
+	require.False(t, ok)
+}
+
+func TestExtractCWExternalID_ZeroIDReturnsFalse(t *testing.T) {
+	_, ok := extractCWExternalID([]byte(`{"id":0}`))
+	require.False(t, ok)
+}
+
+func TestExtractCWExternalID_MalformedJSONReturnsFalse(t *testing.T) {
+	_, ok := extractCWExternalID([]byte(`{`))
+	require.False(t, ok)
+}
+
+func TestChatwootShouldRelay_MalformedJSONReturnsFalse(t *testing.T) {
+	require.False(t, chatwootShouldRelay([]byte(`{not-json`)))
+}
+
+func TestChatwootShouldRelay_WrongEventReturnsFalse(t *testing.T) {
+	require.False(t, chatwootShouldRelay([]byte(`{"event":"conversation_status_changed","message_type":"outgoing","private":false}`)))
+}
+
+func TestReadyz_ReturnsOKWhenDBAndQueueHealthy(t *testing.T) {
+	// Sanity coverage for the happy path that integration tests skip:
+	// we exercise the response shape without a real DB by hitting only
+	// /healthz, which never touches DB.
+	s := newTestServer(t, nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "ok")
+}

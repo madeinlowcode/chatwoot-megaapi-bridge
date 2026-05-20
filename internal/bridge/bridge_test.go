@@ -385,6 +385,80 @@ func TestCwAttachments_Extracts(t *testing.T) {
 	}
 }
 
+func TestCwAttachments_EmptyDataURLSkipped(t *testing.T) {
+	body := []byte(`{
+		"event":"message_created","id":1,
+		"attachments":[
+			{"file_type":"image","data_url":""},
+			{"file_type":"video","data_url":"https://cw.example/v.mp4"}
+		]
+	}`)
+	p, err := parseCW(body)
+	require.NoError(t, err)
+	atts := cwAttachments(p)
+	require.Len(t, atts, 1, "empty data_url entries must be dropped")
+	require.Equal(t, "video", atts[0].Kind)
+}
+
+func TestCwTypeToMega_UnknownDefaultsToDocument(t *testing.T) {
+	require.Equal(t, "document", cwTypeToMega("application/pdf"))
+	require.Equal(t, "document", cwTypeToMega(""))
+	require.Equal(t, "image", cwTypeToMega("image"))
+	require.Equal(t, "audio", cwTypeToMega("audio"))
+	require.Equal(t, "video", cwTypeToMega("video"))
+}
+
+func TestWaText_ConversationPreferredOverExtended(t *testing.T) {
+	p, err := parseWA([]byte(`{"message":{"conversation":"primary","extendedTextMessage":{"text":"fallback"}}}`))
+	require.NoError(t, err)
+	require.Equal(t, "primary", waText(p))
+}
+
+func TestWaContactJID_NoServerSuffixReturnsAsIs(t *testing.T) {
+	p, err := parseWA([]byte(`{"key":{"remoteJid":"5511999"}}`))
+	require.NoError(t, err)
+	require.Equal(t, "5511999", waContactJID(p))
+}
+
+func TestSendMegaAPIText_DecryptErrorIsFatal(t *testing.T) {
+	s := &Server{Key: RandomBytes(32)}
+	// Ciphertext encrypted with a different key surfaces a decrypt failure
+	// that must NOT be retried (no point hammering megaAPI without a token).
+	bogus := bytes.Repeat([]byte{0xAA}, 64)
+	tn := Tenant{MegaAPIHost: "http://nowhere.invalid", MegaAPIInstance: "i", MegaAPITokenEnc: bogus}
+	err := s.sendMegaAPIText(context.Background(), tn, "5511", "hi")
+	require.Error(t, err)
+	require.False(t, isRetriable(err), "decrypt failure must be fatal")
+}
+
+func TestSendMegaAPIMedia_DecryptErrorIsFatal(t *testing.T) {
+	s := &Server{Key: RandomBytes(32)}
+	bogus := bytes.Repeat([]byte{0xBB}, 64)
+	tn := Tenant{MegaAPIHost: "http://nowhere.invalid", MegaAPIInstance: "i", MegaAPITokenEnc: bogus}
+	err := s.sendMegaAPIMedia(context.Background(), tn, "5511",
+		Attachment{URL: "https://m/x.jpg", Kind: "image"})
+	require.Error(t, err)
+	require.False(t, isRetriable(err))
+}
+
+// HTTP-layer transport failure on megaAPI must be classified retriable so the
+// worker retries the job after backoff instead of marking the message failed.
+func TestSendMegaAPIText_TransportErrorIsRetriable(t *testing.T) {
+	key := RandomBytes(32)
+	enc, err := Encrypt([]byte("tok"), key)
+	require.NoError(t, err)
+	s := &Server{Key: key}
+	// Unreachable host — Dial fails, classifyHTTP never runs, retriable() wraps.
+	tn := Tenant{
+		MegaAPIHost:     "http://127.0.0.1:1", // port 1 reserved/unreachable
+		MegaAPIInstance: "i",
+		MegaAPITokenEnc: enc,
+	}
+	err = s.sendMegaAPIText(context.Background(), tn, "5511", "hi")
+	require.Error(t, err)
+	require.True(t, isRetriable(err), "transport failure must retry")
+}
+
 func TestWaAttachment_TextOnly_ReturnsFalse(t *testing.T) {
 	body := []byte(`{
 		"key":{"id":"WAID-6","remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},
