@@ -27,6 +27,9 @@ mensagens, filas de retry, e instalação fácil para usuários leigos.
 | 11 | [Observabilidade](./11-observability.md) | Logs, métricas, traces, alertas |
 | 12 | [Roadmap](./12-roadmap.md) | Fases MVP → produção |
 | 13 | [Riscos e Decisões](./13-risks-and-decisions.md) | ADRs, tradeoffs, mitigações |
+| 14 | [E2E Setup Runbook](./14-e2e-setup-runbook.md) | Como o ambiente E2E real foi montado (topologia, ordem, componentes) |
+| 15 | [Troubleshooting](./15-troubleshooting.md) | Diagnóstico ordenado externo → interno quando algo falha |
+| 16 | [Postmortem — Validação E2E](./16-postmortem-e2e-validation.md) | Bugs encontrados, fixes aplicados, dívida técnica |
 
 ## Glossário rápido
 
