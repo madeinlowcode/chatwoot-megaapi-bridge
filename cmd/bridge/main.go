@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -109,12 +110,25 @@ func cmdServe(ctx context.Context, log zerolog.Logger) error {
 		return err
 	}
 	defer db.Close()
-	srv := bridge.NewServer(db, key, bridge.Config{}, log)
+	srv := bridge.NewServer(db, key, loadServerConfig(), log)
 	if err := srv.RecoverPending(ctx); err != nil {
 		log.Warn().Err(err).Msg("recover pending failed")
 	}
 	go srv.RunWorkers(ctx)
 	return runHTTP(ctx, log, srv)
+}
+
+// loadServerConfig wires runtime tuning from env so the same binary can be
+// pushed under load tests (BUFFER_LIMIT, WORKERS) without touching bridge code.
+func loadServerConfig() bridge.Config {
+	cfg := bridge.Config{}
+	if v, err := strconv.Atoi(getEnv("BUFFER_LIMIT", "")); err == nil && v > 0 {
+		cfg.BufferLimit = v
+	}
+	if v, err := strconv.Atoi(getEnv("WORKERS", "")); err == nil && v >= 0 {
+		cfg.Workers = v
+	}
+	return cfg
 }
 
 func runHTTP(ctx context.Context, log zerolog.Logger, srv *bridge.Server) error {

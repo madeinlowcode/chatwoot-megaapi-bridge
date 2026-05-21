@@ -28,8 +28,10 @@ services:
       MASTER_KEY: ${MASTER_KEY}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BRIDGE_PORT: ${BRIDGE_PORT:-8080}
+      BUFFER_LIMIT: ${BUFFER_LIMIT:-1000}
+      WORKERS: ${WORKERS:-0}
     ports:
-      - "${BRIDGE_PORT:-8080}:8080"
+      - "${BRIDGE_HOST_PORT:-${BRIDGE_PORT:-8080}}:8080"
     healthcheck:
       test: ["CMD", "/bridge", "--help"]
       interval: 10s
